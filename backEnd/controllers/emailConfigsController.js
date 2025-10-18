@@ -139,14 +139,6 @@ export const sendBulkViaFile = async (req, res) => {
       path: file.path,
     }));
 
-    // ✅ Send emails with rate limiting and error tracking
-    // const results = await sendEmailsInBatches(
-    //   config,
-    //   emailList,
-    //   subject,
-    //   message,
-    //   mailAttachments
-    // );
     const results = await sendEmailsSequentially(
       config,
       emailList,
@@ -156,15 +148,6 @@ export const sendBulkViaFile = async (req, res) => {
       uploadedFiles
     );
 
-    // ✅ Return detailed results
-    // return res.status(200).json({
-    //   message: `Successfully sent ${results.successful} emails`,
-    //   total: emailList.length,
-    //   successful: results.successful,
-    //   failed: results.failed,
-    //   errors:
-    //     results.errors.length > 0 ? results.errors.slice(0, 10) : undefined,
-    // });
     return res.status(202).json({
       message: "Bulk email completed",
       total: emailList.length,
