@@ -88,7 +88,7 @@ export const sendSingleEmail = async (req, res) => {
 
     return res.status(200).json({ message: "Email sent successfully", to });
   } catch (error) {
-    console.log(error);
+    console.error(error);
     console.error(error.message);
     return globalErrorHandler(res, 500);
   }
@@ -166,6 +166,7 @@ export const sendBulkViaFile = async (req, res) => {
   }
 };
 
+//* send bulk mail via text
 export const sendBulkEmailViaText = async (req, res) => {
   try {
     const { subject, message, emails } = req.body;

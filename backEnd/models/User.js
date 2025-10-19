@@ -23,6 +23,21 @@ const userSchema = new mongoose.Schema(
       trim: true,
       minlength: 8,
     },
+    userConfirmPassword: {
+      type: String,
+      required: [true, "please Provide Confirm Password"],
+      trim: true,
+      minlength: 8,
+      validate: {
+        validator: function (pw) {
+          return pw === this.userPassword;
+        },
+        message: "password and confirm password not matched",
+      },
+    },
+    passwordChangeAt: { type: Date, default: Date.now },
+    passwordResetToken: { type: String },
+    passwordResetExpires: { type: Date },
   },
   { timestamps: true }
 );
@@ -34,6 +49,7 @@ userSchema.pre("save", async function (next) {
   try {
     const salt = await bcryptjs.genSalt(10);
     this.userPassword = await bcryptjs.hash(this.userPassword, salt);
+    this.userConfirmPassword = undefined;
     next();
   } catch (error) {
     console.error(error);
@@ -48,6 +64,21 @@ userSchema.methods.matchPassword = async function (
   clientPassword
 ) {
   return await bcryptjs.compare(candidatePassword, clientPassword);
+};
+
+//* PASSWORD RESET/FORGOT TOKEN
+userSchema.methods.createPasswordResetToken = function () {
+  const resetToken = crypto.randomBytes(32).toString("hex");
+
+  const finalToken = crypto
+    .createHash("sha256")
+    .update(resetToken)
+    .digest("hex");
+  this.passwordResetToken = finalToken;
+
+  this.passwordResetExpires = Date.now() + 10 * 60 * 1000;
+
+  return finalToken;
 };
 
 const User = mongoose.model("Users", userSchema);
