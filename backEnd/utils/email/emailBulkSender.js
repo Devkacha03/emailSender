@@ -1,5 +1,6 @@
 import { createTransporter } from "../mailTransporter.js";
 import { cleanupFiles } from "../file/fileCleanup.js";
+import EmailLogs from "../../models/emailLogs.js";
 
 // ✅ Helper: Send emails in batches with rate limiting
 export const sendEmailsInBatches = async (
@@ -61,11 +62,24 @@ export const sendEmailsSequentially = async (
   subject,
   message,
   attachments,
-  uploadedFiles
+  uploadedFiles,
+  userId,
+  emailConfigId
 ) => {
   try {
     const transport = createTransporter(config);
     const DELAY_MS = 30000; // 30 seconds
+
+    //create email log entry
+    const emailLogs = new EmailLogs({
+      userId,
+      emailConfigId,
+      subject,
+      isBulk: true,
+      recipients: emailList.map((email) => ({ email, status: "pending" })),
+      overallStatus: "pending",
+    });
+    await emailLogs.save();
 
     let successful = 0;
     let failed = 0;
@@ -88,9 +102,17 @@ export const sendEmailsSequentially = async (
         });
 
         successful++;
+        emailLogs.recipients[i].status = "success";
+        emailLogs.recipients[i].sentAt = new Date();
+        emailLogs.sentAt = new Date();
         console.log(`✓ Email ${i + 1}/${emailList.length} sent to ${email}`);
       } catch (error) {
         failed++;
+
+        emailLogs.recipients[i].status = "failed";
+        emailLogs.recipients[i].errorMessage = error.message;
+        emailLogs.recipients[i].sentAt = new Date();
+
         errors.push({
           email,
           error: error.message,
@@ -101,12 +123,23 @@ export const sendEmailsSequentially = async (
         );
       }
 
+      // ✅ Save progress after each email (in case of interruption)
+      await emailLogs.save();
+
       // ✅ Wait 30 seconds before sending next email (except for the last one)
       if (i < emailList.length - 1) {
         console.log(`Waiting 30 seconds before next email...`);
         await new Promise((resolve) => setTimeout(resolve, DELAY_MS));
       }
     }
+
+    // ✅ Update overall status
+    if (failed === 0) emailLogs.overallStatus = "success";
+    else if (successful === 0) emailLogs.overallStatus = "failed";
+    else emailLogs.overallStatus = "partial";
+
+    emailLogs.sentAt = new Date();
+    await emailLogs.save();
 
     // ✅ Clean up uploaded files
     await cleanupFiles(uploadedFiles);

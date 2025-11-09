@@ -1,4 +1,5 @@
 import Email from "../models/emailConfig.js";
+import EmailLogs from "../models/emailLogs.js";
 import { createTransporter } from "../utils/mailTransporter.js";
 import { extractEmailsFromFile } from "../utils/email/extractEmails.js";
 import {
@@ -66,7 +67,8 @@ export const sendSingleEmail = async (req, res) => {
 
     const config = req.user; //* Get configuration Data
     config.password = decrypt(config.password);
-
+    // console.log(config);
+    // return res.sendStatus(200);
     const transport = createTransporter(config);
 
     const attachments =
@@ -74,6 +76,17 @@ export const sendSingleEmail = async (req, res) => {
         filename: file.originalname,
         path: file.path,
       })) || [];
+
+    // ✅ Create new EmailLog entry before sending
+    const newLog = new EmailLogs({
+      userId: config.userId,
+      emailConfigId: config._id,
+      subject,
+      isBulk: false,
+      recipients: [{ email: to, status: "pending" }],
+      overallStatus: "pending",
+    });
+    await newLog.save();
 
     const mailOptions = {
       from: config.email,
@@ -84,9 +97,30 @@ export const sendSingleEmail = async (req, res) => {
       attachments,
     };
 
-    await transport.sendMail(mailOptions);
+    try {
+      await transport.sendMail(mailOptions);
 
-    return res.status(200).json({ message: "Email sent successfully", to });
+      // ✅ Update log on success
+      newLog.recipients[0].status = "success";
+      newLog.overallStatus = "success";
+      newLog.recipients[0].sentAt = new Date();
+      newLog.sentAt = new Date();
+      await newLog.save();
+
+      return res.status(200).json({ message: "Email sent successfully", to });
+    } catch (error) {
+      console.error(error.message);
+
+      // ✅ Update log (failure)
+      newLog.recipients[0].status = "failed";
+      newLog.recipients[0].sentAt = new Date();
+      newLog.recipients[0].errorMessage = error.message;
+      newLog.overallStatus = "failed";
+      newLog.sentAt = new Date();
+      await newLog.save();
+
+      return globalErrorHandler(res, 500, "Email Sending Failed");
+    }
   } catch (error) {
     console.error(error);
     console.error(error.message);
@@ -145,7 +179,9 @@ export const sendBulkViaFile = async (req, res) => {
       subject,
       message,
       mailAttachments,
-      uploadedFiles
+      uploadedFiles,
+      config.userId,
+      config._id
     );
 
     return res.status(202).json({
@@ -203,7 +239,9 @@ export const sendBulkEmailViaText = async (req, res) => {
       subject,
       message,
       mailAttachments,
-      attachments
+      attachments,
+      config.userId,
+      config._id
     );
     return res.status(202).json({
       message: "Bulk email completed",

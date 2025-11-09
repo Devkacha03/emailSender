@@ -214,7 +214,7 @@ export const setNewPassword = async (req, res) => {
     const loginToken = regGenerateToken(updateUser._id);
     return res
       .status(200)
-      .json({ message: "successfully update a password", token: loginToken });
+      .json({ message: "set new password calling", token: loginToken });
   } catch (error) {
     console.error(error.message);
     return globalErrorHandler(res, 500);

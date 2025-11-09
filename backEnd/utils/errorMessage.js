@@ -26,4 +26,5 @@ export const errorMessages = {
   402: "Payment Required",
   411: "Length Required",
   412: "Precondition Failed",
+  499: "Close Connection",
 };
