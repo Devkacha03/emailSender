@@ -1,6 +1,7 @@
 import { createTransporter } from "../mailTransporter.js";
 import { cleanupFiles } from "../file/fileCleanup.js";
 import EmailLogs from "../../models/emailLogs.js";
+import { personalizeMessage } from "./emailValidator.js";
 
 // ✅ Helper: Send emails in batches with rate limiting
 export const sendEmailsInBatches = async (
@@ -23,15 +24,20 @@ export const sendEmailsInBatches = async (
       const batch = emailList.slice(i, i + BATCH_SIZE);
 
       const batchResults = await Promise.allSettled(
-        batch.map((email) =>
-          transport.sendMail({
+        batch.map((emailData) => {
+          // Personalize message for each recipient
+          const email = typeof emailData === 'string' ? emailData : emailData.email;
+          const name = typeof emailData === 'object' ? emailData.name : null;
+          const personalizedMsg = personalizeMessage(message, name);
+          
+          return transport.sendMail({
             from: config.email,
             to: email,
             subject,
-            html: message,
+            html: personalizedMsg,
             attachments,
-          })
-        )
+          });
+        })
       );
 
       // ✅ Track results
@@ -40,8 +46,10 @@ export const sendEmailsInBatches = async (
           successful++;
         } else {
           failed++;
+          const emailData = batch[index];
+          const email = typeof emailData === 'string' ? emailData : emailData.email;
           errors.push({
-            email: batch[index],
+            email,
             error: result.reason?.message || "Unknown error",
           });
         }
@@ -68,7 +76,7 @@ export const sendEmailsSequentially = async (
 ) => {
   try {
     const transport = createTransporter(config);
-    const DELAY_MS = 30000; // 30 seconds
+    const DELAY_MS = 0; // No delay - send emails immediately
 
     //create email log entry
     const emailLogs = new EmailLogs({
@@ -76,7 +84,10 @@ export const sendEmailsSequentially = async (
       emailConfigId,
       subject,
       isBulk: true,
-      recipients: emailList.map((email) => ({ email, status: "pending" })),
+      recipients: emailList.map((emailData) => {
+        const email = typeof emailData === 'string' ? emailData : emailData.email;
+        return { email, status: "pending" };
+      }),
       overallStatus: "pending",
     });
     await emailLogs.save();
@@ -86,18 +97,23 @@ export const sendEmailsSequentially = async (
     const errors = [];
 
     console.log(
-      `Starting to send ${emailList.length} emails with 30-second intervals...`
+      `Starting to send ${emailList.length} emails...`
     );
 
     for (let i = 0; i < emailList.length; i++) {
-      const email = emailList[i];
+      const emailData = emailList[i];
+      const email = typeof emailData === 'string' ? emailData : emailData.email;
+      const name = typeof emailData === 'object' ? emailData.name : null;
 
       try {
+        // Personalize message for each recipient
+        const personalizedMsg = personalizeMessage(message, name);
+        
         await transport.sendMail({
           from: config.email,
           to: email,
           subject,
-          html: message,
+          html: personalizedMsg,
           attachments,
         });
 
@@ -126,11 +142,7 @@ export const sendEmailsSequentially = async (
       // ✅ Save progress after each email (in case of interruption)
       await emailLogs.save();
 
-      // ✅ Wait 30 seconds before sending next email (except for the last one)
-      if (i < emailList.length - 1) {
-        console.log(`Waiting 30 seconds before next email...`);
-        await new Promise((resolve) => setTimeout(resolve, DELAY_MS));
-      }
+      // No delay - emails sent immediately
     }
 
     // ✅ Update overall status

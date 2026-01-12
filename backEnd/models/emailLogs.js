@@ -31,12 +31,12 @@ const emailLogSchema = new mongoose.Schema(
   {
     userId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "users",
+      ref: "Users",
       required: [true, "User ID is required"],
     },
     emailConfigId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "emailconfigs",
+      ref: "EmailConfig",
       required: [true, "Email Config ID is required"],
     },
     subject: {

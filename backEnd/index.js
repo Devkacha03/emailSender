@@ -6,6 +6,8 @@ import databaseConnection from "./database/db.js";
 import userRoute from "./routes/userRoute.js";
 import mail from "./routes/emailConfigRoute.js";
 import emailStatRoute from "./routes/emailStat.js";
+import aiRoute from "./routes/aiRoute.js";
+import adminRoute from "./routes/adminRoute.js";
 
 dotenv.config();
 const app = express();
@@ -22,6 +24,8 @@ app.get("/", (req, res) => {
 app.use("/api/users", userRoute);
 app.use("/api", mail);
 app.use("/api/v2", emailStatRoute);
+app.use("/api/ai", aiRoute);
+app.use("/api/admin", adminRoute);
 
 const { PORT, HOST } = process.env;
 

@@ -5,7 +5,7 @@ const emailConfigSchema = mongoose.Schema(
   {
     userId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "users",
+      ref: "Users",
       required: true,
       unique: true,
     },
@@ -20,6 +20,19 @@ const emailConfigSchema = mongoose.Schema(
     password: {
       type: String,
       required: true,
+    },
+    // Custom SMTP settings
+    host: {
+      type: String,
+      required: false,
+    },
+    port: {
+      type: Number,
+      required: false,
+    },
+    secure: {
+      type: Boolean,
+      default: false,
     },
   },
   { timestamps: true }

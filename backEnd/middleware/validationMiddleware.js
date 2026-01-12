@@ -12,10 +12,11 @@ function globalValidationMiddleware(dataSchema, req, res, next) {
 
 export const regValidationMiddleware = (req, res, next) => {
   const userSchema = joi.object({
-    userName: joi.string().alphanum().min(3).max(30).required(),
+    userName: joi.string().min(3).max(50).required(),
     userEmail: joi.string().email().required(),
     userPassword: joi.string().min(8).required(),
     userConfirmPassword: joi.string().min(8).required(),
+    role: joi.string().valid('user', 'admin').optional(),
   });
 
   globalValidationMiddleware(userSchema, req, res, next);
@@ -42,9 +43,12 @@ export const changePasswordValidatioMiddleware = (req, res, next) => {
 
 export const serviceValidationMiddleware = (req, res, next) => {
   const serviceSchema = joi.object({
-    service: joi.string().alphanum().min(3).max(30).required(),
+    service: joi.string().min(3).max(30).required(),
     email: joi.string().email().required(),
     password: joi.string().required(),
+    host: joi.string().optional().allow(''),
+    port: joi.number().optional().allow(''),
+    secure: joi.boolean().optional(),
   });
 
   globalValidationMiddleware(serviceSchema, req, res, next);

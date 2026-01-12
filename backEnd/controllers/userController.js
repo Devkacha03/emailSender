@@ -10,13 +10,14 @@ dotenv.config();
 
 export const signUp = async (req, res) => {
   try {
-    let { userName, userEmail, userPassword, userConfirmPassword } = req.body;
+    let { userName, userEmail, userPassword, userConfirmPassword, role } = req.body;
 
     const user = await User.create({
       userName,
       userEmail,
       userPassword,
       userConfirmPassword,
+      role: role || "user", // Use provided role or default to "user"
     });
 
     const regToken = regGenerateToken(user._id);
@@ -24,7 +25,12 @@ export const signUp = async (req, res) => {
     res.status(200).json({
       status: "success",
       token: regToken,
-      userDetail: { userName: user.userName, userEmail: user.userEmail },
+      userDetail: { 
+        _id: user._id,
+        userName: user.userName, 
+        userEmail: user.userEmail,
+        role: user.role 
+      },
     });
   } catch (error) {
     console.error("Error in user sign-up:", error.message);
@@ -53,7 +59,12 @@ export const signIn = async (req, res) => {
     res.status(200).json({
       status: "success",
       token: regToken,
-      userDetail: { userName: user.userName, userEmail: user.userEmail },
+      userDetail: { 
+        _id: user._id,
+        userName: user.userName, 
+        userEmail: user.userEmail,
+        role: user.role 
+      },
     });
   } catch (error) {
     console.error("Error in user sign-in:", error.message);
@@ -133,23 +144,70 @@ export const forgotPassword = async (req, res) => {
 
     const userData = await User.findOne({ userEmail: email });
 
-    if (!userData) return globalErrorHandler(res, 404);
-    console.log(userData);
+    if (!userData) {
+      return res.status(404).json({ 
+        status: "error",
+        message: "No account found with this email address" 
+      });
+    }
 
     const resetToken = await userData.createPasswordResetToken();
-
     await userData.save({ validateBeforeSave: false }); // SAVE RESET TOKEN WITH EXPIRY DATE IN DB
 
-    // CREATE URL FOR SENDING WITH EMAIL MESSAGE
-    const resetUrl = `${req.protocol}://${req.get(
-      "host"
-    )}/api/users/setUpdatingPassword/${resetToken}`;
+    // CREATE URL FOR FRONTEND RESET PAGE (NOT API ENDPOINT)
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const resetUrl = `${frontendUrl}/reset-password/${resetToken}`;
 
-    const message = `change your password Following This Url : ${resetUrl}`; //CREATE MESSAGE FOR SENDING EMAIL
+    // CREATE HTML EMAIL MESSAGE
+    const htmlMessage = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #4F46E5; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }
+          .content { background-color: #f9f9f9; padding: 30px; border-radius: 0 0 5px 5px; }
+          .button { display: inline-block; padding: 12px 30px; background-color: #4F46E5; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0; }
+          .footer { text-align: center; margin-top: 20px; font-size: 12px; color: #666; }
+          .warning { background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 10px; margin: 15px 0; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>Password Reset Request</h1>
+          </div>
+          <div class="content">
+            <p>Hello,</p>
+            <p>You have requested to reset your password. Click the button below to reset your password:</p>
+            <center>
+              <a href="${resetUrl}" class="button">Reset Password</a>
+            </center>
+            <p>Or copy and paste this link into your browser:</p>
+            <p style="word-break: break-all; color: #4F46E5;">${resetUrl}</p>
+            <div class="warning">
+              <strong>⚠️ Important:</strong> This link will expire in 10 minutes for security reasons.
+            </div>
+            <p>If you didn't request this password reset, please ignore this email. Your password will remain unchanged.</p>
+          </div>
+          <div class="footer">
+            <p>This is an automated email, please do not reply.</p>
+            <p>&copy; ${new Date().getFullYear()} Email Sender Application. All rights reserved.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
 
     const { EHOST, EMAIL, GPASSWORD } = process.env;
 
-    if (!EHOST || !EMAIL || !GPASSWORD) return globalErrorHandler(res, 404);
+    if (!EHOST || !EMAIL || !GPASSWORD) {
+      return res.status(500).json({ 
+        status: "error",
+        message: "Email configuration is missing. Please contact administrator." 
+      });
+    }
 
     const config = {
       service: EHOST,
@@ -157,24 +215,33 @@ export const forgotPassword = async (req, res) => {
       password: GPASSWORD,
     };
 
-    const trasnporter = createTransporter(config);
+    const transporter = createTransporter(config);
 
-    await trasnporter.sendMail({
-      from: EMAIL,
+    await transporter.sendMail({
+      from: `"Email Sender App" <${EMAIL}>`,
       to: email,
-      subject: "password Reset Token",
-      html: message,
+      subject: "Password Reset Request - Action Required",
+      html: htmlMessage,
     });
 
-    return res
-      .status(200)
-      .json({ message: `password Reset Token Sent to your ${email} email` });
+    return res.status(200).json({ 
+      status: "success",
+      message: `Password reset link has been sent to ${email}` 
+    });
   } catch (error) {
-    console.error(error.message);
-    userData.passwordRestToken = ""; //SET passwordRestToken TOKEN UNDEFINED IF ERROR
-    userData.passwordRestExpires = ""; //SET passwordRestExpires TOKEN UNDEFINED IF ERROR
-    await userData.save({ validateBeforeSave: false }); // SAVE ABOVE VALUE IN DB
-    return globalErrorHandler(res, 500);
+    console.error("Error in forgotPassword:", error.message);
+    
+    // Clean up the reset token if email fails
+    if (userData) {
+      userData.passwordResetToken = undefined;
+      userData.passwordResetExpires = undefined;
+      await userData.save({ validateBeforeSave: false });
+    }
+    
+    return res.status(500).json({ 
+      status: "error",
+      message: "Failed to send password reset email. Please try again later." 
+    });
   }
 };
 
@@ -185,12 +252,12 @@ export const setNewPassword = async (req, res) => {
     const { newPassword, confirmPassword } = req.body; // GET VALUE FROM THE USER
 
     // CHECK NEW AND CONFIRM PASSWORD IF NOT MATCHED
-    if (newPassword !== confirmPassword)
-      return globalErrorHandler(
-        res,
-        400,
-        "newPassword and ConfirmPassword do not matched"
-      );
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({ 
+        status: "error",
+        message: "New password and confirm password do not match" 
+      });
+    }
 
     const salt = await bcryptjs.genSalt(10); // DEFINE NUMBER OF (ROUND OF SALTING)
     const passwordToHash = await bcryptjs.hash(newPassword, salt); // NEW PASSWORD CONVERT TO HASHING
@@ -211,12 +278,26 @@ export const setNewPassword = async (req, res) => {
         runValidators: true,
       }
     );
+
+    if (!updateUser) {
+      return res.status(404).json({ 
+        status: "error",
+        message: "User not found" 
+      });
+    }
+
     const loginToken = regGenerateToken(updateUser._id);
-    return res
-      .status(200)
-      .json({ message: "set new password calling", token: loginToken });
+    
+    return res.status(200).json({ 
+      status: "success",
+      message: "Password has been reset successfully", 
+      token: loginToken 
+    });
   } catch (error) {
-    console.error(error.message);
-    return globalErrorHandler(res, 500);
+    console.error("Error in setNewPassword:", error.message);
+    return res.status(500).json({ 
+      status: "error",
+      message: "Failed to reset password. Please try again." 
+    });
   }
 };

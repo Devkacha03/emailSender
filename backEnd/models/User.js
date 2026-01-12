@@ -25,7 +25,7 @@ const userSchema = new mongoose.Schema(
     },
     userConfirmPassword: {
       type: String,
-      required: [true, "please Provide Confirm Password"],
+      required: [function() { return this.isNew; }, "please Provide Confirm Password"],
       trim: true,
       minlength: 8,
       validate: {
@@ -33,6 +33,42 @@ const userSchema = new mongoose.Schema(
           return pw === this.userPassword;
         },
         message: "password and confirm password not matched",
+      },
+    },
+    role: {
+      type: String,
+      enum: ["user", "admin"],
+      default: "user",
+    },
+    isActive: {
+      type: Boolean,
+      default: true,
+    },
+    // Quota Management
+    quota: {
+      dailyLimit: {
+        type: Number,
+        default: 100,
+      },
+      monthlyLimit: {
+        type: Number,
+        default: 3000,
+      },
+      currentDailyUsage: {
+        type: Number,
+        default: 0,
+      },
+      currentMonthlyUsage: {
+        type: Number,
+        default: 0,
+      },
+      lastDailyReset: {
+        type: Date,
+        default: Date.now,
+      },
+      lastMonthlyReset: {
+        type: Date,
+        default: Date.now,
       },
     },
     passwordChangeAt: { type: Date, default: Date.now },

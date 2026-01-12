@@ -3,7 +3,7 @@ import { errorMessages } from "../utils/errorMessage.js";
 export const globalErrorHandler = (res, statusCode, message) => {
   statusCode = statusCode || 500;
   if (!message) message = errorMessages[statusCode] || "Unknown Error";
-  return res.status(statusCode).json({ error: message });
+  return res.status(statusCode).json({ message: message, error: message });
 };
 
 export const clientTokenError = (errorName = null, error, res) => {

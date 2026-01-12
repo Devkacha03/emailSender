@@ -5,16 +5,50 @@ import mongoose from "mongoose";
 export const getEmailLogs = async (req, res) => {
   try {
     const { _id } = req.user;
+    const { page = 1, limit = 10, status, search, sortBy = 'createdAt', order = 'desc' } = req.query;
 
-    const logs = await EmailLogs.find({ userId: _id })
-      .sort({ createdAt: -1 })
+    // Build query
+    const query = { userId: _id };
+    
+    // Filter by status if provided
+    if (status && status !== 'all') {
+      query.overallStatus = status;
+    }
+
+    // Search by subject or recipient email
+    if (search) {
+      query.$or = [
+        { subject: { $regex: search, $options: 'i' } },
+        { 'recipients.email': { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    // Calculate pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const sortOrder = order === 'desc' ? -1 : 1;
+
+    // Get total count for pagination
+    const total = await EmailLogs.countDocuments(query);
+
+    // Fetch logs with pagination
+    const logs = await EmailLogs.find(query)
+      .sort({ [sortBy]: sortOrder })
+      .skip(skip)
+      .limit(parseInt(limit))
       .lean()
-      .select("-__v -emailConfigId -createdAt -updatedAt");
+      .select("-__v -emailConfigId");
 
     return res.status(200).json({
       success: true,
-      length: logs.length,
       emailLogs: logs,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(total / parseInt(limit)),
+        totalLogs: total,
+        limit: parseInt(limit),
+        hasNextPage: skip + logs.length < total,
+        hasPrevPage: parseInt(page) > 1
+      }
     });
   } catch (error) {
     console.error(error.message);

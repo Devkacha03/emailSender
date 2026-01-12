@@ -1,13 +1,13 @@
 import Email from "../models/emailConfig.js";
 import EmailLogs from "../models/emailLogs.js";
 import { createTransporter } from "../utils/mailTransporter.js";
-import { extractEmailsFromFile } from "../utils/email/extractEmails.js";
+import { extractEmailsFromFile, extractEmailsWithNamesFromFile } from "../utils/email/extractEmails.js";
 import {
   sendEmailsInBatches,
   sendEmailsSequentially,
 } from "../utils/email/emailBulkSender.js";
 import { cleanupFiles } from "../utils/file/fileCleanup.js";
-import { emailIsValidAndRemoveDuplicate } from "../utils/email/emailValidator.js";
+import { emailIsValidAndRemoveDuplicate, parseEmailsFromText } from "../utils/email/emailValidator.js";
 import { globalErrorHandler } from "./errorsManager.js";
 import { encrypt, decrypt } from "../utils/encryptDecrypt.js";
 import csvParser from "csv-parser";
@@ -15,22 +15,34 @@ import csvParser from "csv-parser";
 //* store mail configeration
 export const setEmailConfig = async (req, res) => {
   try {
-    const { service, email, password } = req.body;
+    const { service, email, password, host, port, secure } = req.body;
     const data = await Email.findOne({ userId: req.user._id }).lean();
 
     const hashPassword = encrypt(password);
-    if (!data)
-      await Email.create({
-        userId: req.user.id,
-        service,
-        email,
-        password: hashPassword,
-      });
-    else return globalErrorHandler(res, 409);
+    
+    const configData = {
+      userId: req.user.id,
+      service,
+      email,
+      password: hashPassword,
+    };
+    
+    // Add custom SMTP settings if service is custom
+    if (service === 'custom') {
+      configData.host = host;
+      configData.port = port || 587;
+      configData.secure = secure || false;
+    }
+    
+    if (!data) {
+      await Email.create(configData);
+    } else {
+      return globalErrorHandler(res, 409);
+    }
 
     return res.status(200).json({
       message: "Email configuration saved",
-      config: { service, email },
+      config: { service, email, host, port, secure },
     });
   } catch (error) {
     console.error(error.message);
@@ -50,6 +62,9 @@ export const getEmailConfig = async (req, res) => {
       service: config.service,
       email: config.email,
       password: config.password,
+      host: config.host,
+      port: config.port,
+      secure: config.secure,
     });
   } catch (error) {
     console.error(error.message);
@@ -66,9 +81,16 @@ export const sendSingleEmail = async (req, res) => {
       return globalErrorHandler(res, 400, "Field are Missing");
 
     const config = req.user; //* Get configuration Data
+    
+    // Validate email configuration exists
+    if (!config.email || !config.password) {
+      return globalErrorHandler(res, 400, "Email configuration is incomplete. Please configure your email settings first.");
+    }
+    
     config.password = decrypt(config.password);
-    // console.log(config);
-    // return res.sendStatus(200);
+    
+    console.log(`📧 Attempting to send email from ${config.email} to ${to}`);
+    
     const transport = createTransporter(config);
 
     const attachments =
@@ -100,6 +122,8 @@ export const sendSingleEmail = async (req, res) => {
     try {
       await transport.sendMail(mailOptions);
 
+      console.log(`✅ Email sent successfully to ${to}`);
+
       // ✅ Update log on success
       newLog.recipients[0].status = "success";
       newLog.overallStatus = "success";
@@ -109,17 +133,29 @@ export const sendSingleEmail = async (req, res) => {
 
       return res.status(200).json({ message: "Email sent successfully", to });
     } catch (error) {
-      console.error(error.message);
+      console.error("❌ Email sending error:", error.message);
+      console.error("Error details:", error);
+
+      let errorMessage = error.message;
+      
+      // Provide helpful error messages for common issues
+      if (error.code === 'ETIMEDOUT' || error.message.includes('timeout')) {
+        errorMessage = "Connection timeout. Your firewall or ISP may be blocking SMTP ports (465/587). Try: 1) Disable antivirus temporarily, 2) Use a different network (mobile hotspot), or 3) Contact your network administrator.";
+      } else if (error.code === 'EAUTH' || error.responseCode === 535) {
+        errorMessage = "Authentication failed. Make sure you're using a Gmail App Password (not your regular password). Generate one at: https://myaccount.google.com/apppasswords";
+      } else if (error.code === 'ECONNECTION') {
+        errorMessage = "Cannot connect to email server. Check your internet connection.";
+      }
 
       // ✅ Update log (failure)
       newLog.recipients[0].status = "failed";
       newLog.recipients[0].sentAt = new Date();
-      newLog.recipients[0].errorMessage = error.message;
+      newLog.recipients[0].errorMessage = errorMessage;
       newLog.overallStatus = "failed";
       newLog.sentAt = new Date();
       await newLog.save();
 
-      return globalErrorHandler(res, 500, "Email Sending Failed");
+      return globalErrorHandler(res, 500, errorMessage);
     }
   } catch (error) {
     console.error(error);
@@ -155,8 +191,8 @@ export const sendBulkViaFile = async (req, res) => {
     // Track uploaded files for cleanup
     uploadedFiles = [mailFile, ...attachments];
 
-    // ✅ Extract emails with better error handling
-    const emailList = await extractEmailsFromFile(mailFile);
+    // ✅ Extract emails WITH names for personalization
+    const emailList = await extractEmailsWithNamesFromFile(mailFile);
 
     if (emailList.length === 0) {
       await cleanupFiles(uploadedFiles);
@@ -216,7 +252,8 @@ export const sendBulkEmailViaText = async (req, res) => {
     const config = req.user; //* Get configuration
     config.password = decrypt(config.password);
 
-    let emailList = emailIsValidAndRemoveDuplicate(emails.split(","));
+    // ✅ Parse emails with names for personalization
+    let emailList = parseEmailsFromText(emails);
     const attachments = req.files["attachments"] || [];
 
     if (emailList.length === 0) {
